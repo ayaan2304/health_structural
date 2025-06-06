@@ -1,0 +1,8 @@
+Flask
+gunicorn
+firebase-admin==6.8.0
+google-cloud-firestore==2.20.2
+grpcio==1.71.0
+matplotlib==3.9.2
+opencv-python==4.11.0.86
+requests==2.31.0
