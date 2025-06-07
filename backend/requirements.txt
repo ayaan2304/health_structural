@@ -3,7 +3,7 @@ gunicorn
 numpy
 pandas
 joblib
-scikit-learn==1.7.0
+scikit-learn==1.5.1
 firebase-admin==6.8.0
 google-cloud-firestore==2.20.2
 grpcio==1.71.0
