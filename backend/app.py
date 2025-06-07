@@ -50,7 +50,8 @@ except Exception as e:
 # --- Routes ---
 @app.route('/')
 def serve_react_app():
-    return render_template('index.html')
+    return send_from_directory(os.path.join(app.root_path, '../frontend/build'), 'index.html')
+
 
 @app.route('/static/<path:filename>')
 def serve_static(filename):
