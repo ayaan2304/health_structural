@@ -12,25 +12,23 @@ import json
 app = Flask(__name__, static_folder='../frontend/build/static', template_folder='../frontend/build')
 
 # --- Firebase Initialization (Plain JSON file) ---
-FIREBASE_JSON_PATH = os.path.join(os.path.dirname(__file__), 'firebase-key.json')
-DATABASE_URL = os.environ.get('FIREBASE_DATABASE_URL', 'https://health-3c965-default-rtdb.firebaseio.com')
+FIREBASE_SERVICE_ACCOUNT_KEY_ENCODED = os.environ.get('FIREBASE_SERVICE_ACCOUNT_KEY')
+DATABASE_URL = os.environ.get('FIREBASE_DATABASE_URL')
 
-ref = None  # Firebase DB reference
-
-if os.path.exists(FIREBASE_JSON_PATH):
+if FIREBASE_SERVICE_ACCOUNT_KEY_ENCODED:
     try:
-        cred = credentials.Certificate(FIREBASE_JSON_PATH)
-
-        # Avoid initializing Firebase more than once
+        decoded_key = base64.b64decode(FIREBASE_SERVICE_ACCOUNT_KEY_ENCODED).decode('utf-8')
+        service_account_info = json.loads(decoded_key)
+        cred = credentials.Certificate(service_account_info)
         if not firebase_admin._apps:
             firebase_admin.initialize_app(cred, {'databaseURL': DATABASE_URL})
-
-        print("✅ Firebase initialized successfully!")
         ref = db.reference('structural_data')
+        print("✅ Firebase initialized successfully!")
     except Exception as e:
-        print(f"❌ FATAL ERROR: Could not initialize Firebase: {e}")
+        print(f"❌ Firebase init error: {e}")
 else:
-    print(f"⚠️ WARNING: Firebase credential file not found at {FIREBASE_JSON_PATH}")
+    print("⚠️ FIREBASE_SERVICE_ACCOUNT_KEY env variable not set")
+
 
 # --- Load Model ---
 MODEL_PATH = os.path.join(os.path.dirname(__file__), 'model.pkl')
