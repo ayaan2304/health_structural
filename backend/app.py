@@ -107,6 +107,9 @@ def serve_react_app(path):
         return send_from_directory(app.template_folder, 'index.html')
 
 # --- Entry Point ---
+# --- Entrypoint for Render 🚀 ---
 if __name__ == '__main__':
     from waitress import serve
-    serve(app, host='0.0.0.0', port=5000)
+    port = int(os.environ.get('PORT', 5000))
+    print(f"🚀 Starting app on 0.0.0.0:{port}")
+    serve(app, host='0.0.0.0', port=port)
