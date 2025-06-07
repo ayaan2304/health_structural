@@ -48,14 +48,25 @@ except Exception as e:
     model = None
 
 # --- Routes ---
-@app.route('/')
-def serve_react_app():
-    return send_from_directory(os.path.join(app.root_path, '../frontend/build'), 'index.html')
 
-
+# Serve React static files (js, css, etc)
 @app.route('/static/<path:filename>')
 def serve_static(filename):
     return send_from_directory(app.static_folder, filename)
+
+# Serve React index.html for root and all other routes (for React Router)
+@app.route('/', defaults={'path': ''})
+@app.route('/<path:path>')
+def serve_react_app(path):
+    build_dir = os.path.join(app.root_path, '../frontend/build')
+    index_path = os.path.join(build_dir, 'index.html')
+
+    if os.path.exists(os.path.join(build_dir, path)):
+        # If the path is an actual file, serve it
+        return send_from_directory(build_dir, path)
+    else:
+        # Otherwise serve React's index.html for client-side routing to work
+        return send_from_directory(build_dir, 'index.html')
 
 
 @app.route('/predict', methods=['POST'])
@@ -119,7 +130,6 @@ def predict():
         print(f"❌ Firebase save error: {e}")
 
     return jsonify({'status': status})
-
 
 # --- Run App ---
 if __name__ == '__main__':
