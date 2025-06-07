@@ -6,52 +6,48 @@ import firebase_admin
 from firebase_admin import credentials, db
 import datetime
 import os
-import json # Make sure this is imported
-import base64 # Make sure this is imported
+import json
+import base64
 
+# --- Flask App Initialization ---
 app = Flask(__name__, static_folder='../frontend/build/static', template_folder='../frontend/build')
 
 # --- Firebase Initialization ---
-# Get Firebase service account key from environment variable
 FIREBASE_SERVICE_ACCOUNT_KEY_ENCODED = os.environ.get('FIREBASE_SERVICE_ACCOUNT_KEY')
-# Get Firebase database URL from environment variable, with a fallback
 DATABASE_URL = os.environ.get('FIREBASE_DATABASE_URL', 'https://health-3c965-default-rtdb.firebaseio.com')
 
-# Initialize Firebase only if the service account key environment variable is set
-ref = None # Initialize ref to None
+ref = None  # Firebase DB reference
+
 if FIREBASE_SERVICE_ACCOUNT_KEY_ENCODED:
     try:
-        # Decode the base64 string and load it as JSON
-        service_account_info_decoded = base64.b64decode(FIREBASE_SERVICE_ACCOUNT_KEY_ENCODED).decode('utf-8')
-        service_account_info = json.loads(service_account_info_decoded)
-
+        decoded_key = base64.b64decode(FIREBASE_SERVICE_ACCOUNT_KEY_ENCODED).decode('utf-8')
+        service_account_info = json.loads(decoded_key)
         cred = credentials.Certificate(service_account_info)
-        firebase_admin.initialize_app(cred, {
-            'databaseURL': DATABASE_URL
-        })
-        print("Firebase initialized successfully!")
-        # Only assign ref if initialization was successful
+
+        # Avoid initializing Firebase more than once
+        if not firebase_admin._apps:
+            firebase_admin.initialize_app(cred, {'databaseURL': DATABASE_URL})
+
+        print("✅ Firebase initialized successfully!")
         ref = db.reference('structural_data')
     except Exception as e:
-        print(f"FATAL ERROR: Could not initialize Firebase. Check FIREBASE_SERVICE_ACCOUNT_KEY and FIREBASE_DATABASE_URL environment variables. Error: {e}")
-        # In a production environment, you might want to exit here:
-        # import sys
-        # sys.exit(1)
+        print(f"❌ FATAL ERROR: Could not initialize Firebase: {e}")
 else:
-    print("WARNING: FIREBASE_SERVICE_ACCOUNT_KEY environment variable not set. Firebase will not be initialized.")
+    print("⚠️ WARNING: FIREBASE_SERVICE_ACCOUNT_KEY environment variable not set.")
 
-# Load model
+# --- Load Model ---
 MODEL_PATH = os.path.join(os.path.dirname(__file__), 'model.pkl')
 try:
     model = joblib.load(MODEL_PATH)
-    print("Model loaded successfully!")
+    print("✅ Model loaded successfully!")
 except FileNotFoundError:
-    print(f"Error: model.pkl not found at {MODEL_PATH}")
+    print(f"❌ Error: model.pkl not found at {MODEL_PATH}")
     model = None
 except Exception as e:
-    print(f"Model load error: {e}")
+    print(f"❌ Model load error: {e}")
     model = None
 
+# --- Routes ---
 @app.route('/')
 def serve_react_app():
     return render_template('index.html')
@@ -65,7 +61,9 @@ def predict():
     if model is None:
         return jsonify({'error': 'Model not loaded on the server.'}), 500
 
-    data = request.json
+    data = request.get_json()
+
+    # Validate input
     try:
         ax_g = float(data['ax_g'])
         ay_g = float(data['ay_g'])
@@ -75,8 +73,9 @@ def predict():
     except KeyError as e:
         return jsonify({'error': f'Missing field: {e}'}), 400
     except ValueError as e:
-        return jsonify({'error': f'Invalid data: {e}'}), 400
+        return jsonify({'error': f'Invalid value: {e}'}), 400
 
+    # Compute features
     totalAccel = np.sqrt(ax_g**2 + ay_g**2 + az_g**2)
 
     input_df = pd.DataFrame([{
@@ -88,12 +87,16 @@ def predict():
         'bending': bending
     }])
 
-    pred = model.predict(input_df)[0]
-    status = "DANGER" if pred == 1 else "SAFE"
+    # Make prediction
+    try:
+        pred = model.predict(input_df)[0]
+        status = "DANGER" if pred == 1 else "SAFE"
+    except Exception as e:
+        return jsonify({'error': f'Prediction error: {e}'}), 500
 
-    timestamp = datetime.datetime.now().isoformat()
+    # Prepare data for Firebase
     prediction_data = {
-        'timestamp': timestamp,
+        'timestamp': datetime.datetime.utcnow().isoformat(),
         'ax_g': ax_g,
         'ay_g': ay_g,
         'az_g': az_g,
@@ -103,17 +106,19 @@ def predict():
         'predicted_status': status
     }
 
+    # Save to Firebase
     try:
-        if ref: # Check if ref is initialized and not None
+        if ref:
             ref.push(prediction_data)
-            print(f"Data saved to Firebase: {prediction_data}")
+            print(f"✅ Data saved to Firebase: {prediction_data}")
         else:
-            print("Firebase reference not available (Firebase not initialized). Data not saved to Firebase.")
+            print("⚠️ Firebase reference not available. Data not saved.")
     except Exception as e:
-        print(f"Firebase save error: {e}")
+        print(f"❌ Firebase save error: {e}")
 
     return jsonify({'status': status})
 
+# --- Run App ---
 if __name__ == '__main__':
     from waitress import serve
     serve(app, host='0.0.0.0', port=5000)
