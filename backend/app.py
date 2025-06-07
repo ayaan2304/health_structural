@@ -5,14 +5,14 @@ import datetime
 import numpy as np
 import pandas as pd
 import joblib
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, send_from_directory, request, jsonify
 import firebase_admin
 from firebase_admin import credentials, db
 
-# --- App Setup ---
+# === Flask Setup ===
 app = Flask(__name__, static_folder='../frontend/build/static', template_folder='../frontend/build')
 
-# --- Firebase Init ---
+# === Firebase Setup ===
 FIREBASE_SERVICE_ACCOUNT_KEY_ENCODED = os.environ.get('FIREBASE_SERVICE_ACCOUNT_KEY')
 DATABASE_URL = os.environ.get('FIREBASE_DATABASE_URL')
 
@@ -23,29 +23,43 @@ if FIREBASE_SERVICE_ACCOUNT_KEY_ENCODED and DATABASE_URL:
         decoded_key = base64.b64decode(FIREBASE_SERVICE_ACCOUNT_KEY_ENCODED).decode('utf-8')
         service_account_info = json.loads(decoded_key)
         cred = credentials.Certificate(service_account_info)
+
         if not firebase_admin._apps:
             firebase_admin.initialize_app(cred, {'databaseURL': DATABASE_URL})
+
         ref = db.reference('structural_data')
         print("✅ Firebase initialized successfully!")
     except Exception as e:
         print(f"❌ Firebase init error: {e}")
 else:
-    print("⚠️ WARNING: Firebase environment variables not set.")
+    print("⚠️ Firebase config not found.")
 
-# --- Load Model ---
-MODEL_PATH = os.path.join(os.path.dirname(__file__), 'model.pkl')
+# === Load Model ===
 try:
-    model = joblib.load(MODEL_PATH)
+    model = joblib.load('model.pkl')
     print("✅ Model loaded successfully!")
 except Exception as e:
-    print(f"❌ Model load error: {e}")
     model = None
+    print(f"❌ Model load error: {e}")
 
-# --- API Routes ---
+# === React Frontend Routes ===
+@app.route('/', defaults={'path': ''})
+@app.route('/<path:path>')
+def serve_react_app(path):
+    if path != "" and os.path.exists(os.path.join(app.template_folder, path)):
+        return send_from_directory(app.template_folder, path)
+    else:
+        return send_from_directory(app.template_folder, 'index.html')
+
+@app.route('/static/<path:filename>')
+def serve_static(filename):
+    return send_from_directory(app.static_folder, filename)
+
+# === Prediction Endpoint ===
 @app.route('/predict', methods=['POST'])
 def predict():
-    if model is None:
-        return jsonify({'error': 'Model not loaded.'}), 500
+    if not model:
+        return jsonify({'error': 'Model not loaded'}), 500
 
     try:
         data = request.get_json()
@@ -54,60 +68,42 @@ def predict():
         az_g = float(data['az_g'])
         vibration = float(data['vibration'])
         bending = float(data['bending'])
-    except (KeyError, ValueError) as e:
-        return jsonify({'error': str(e)}), 400
 
-    totalAccel = np.sqrt(ax_g**2 + ay_g**2 + az_g**2)
-    input_df = pd.DataFrame([{
-        'ax_g': ax_g,
-        'ay_g': ay_g,
-        'az_g': az_g,
-        'totalAccel': totalAccel,
-        'vibration': vibration,
-        'bending': bending
-    }])
+        totalAccel = np.sqrt(ax_g**2 + ay_g**2 + az_g**2)
+        input_df = pd.DataFrame([{
+            'ax_g': ax_g,
+            'ay_g': ay_g,
+            'az_g': az_g,
+            'totalAccel': totalAccel,
+            'vibration': vibration,
+            'bending': bending
+        }])
 
-    try:
-        pred = model.predict(input_df)[0]
-        status = "DANGER" if pred == 1 else "SAFE"
-    except Exception as e:
-        return jsonify({'error': f'Prediction error: {e}'}), 500
+        prediction = model.predict(input_df)[0]
+        status = "DANGER" if prediction == 1 else "SAFE"
 
-    prediction_data = {
-        'timestamp': datetime.datetime.utcnow().isoformat(),
-        'ax_g': ax_g,
-        'ay_g': ay_g,
-        'az_g': az_g,
-        'totalAccel': totalAccel,
-        'vibration': vibration,
-        'bending': bending,
-        'predicted_status': status
-    }
+        prediction_data = {
+            'timestamp': datetime.datetime.utcnow().isoformat(),
+            'ax_g': ax_g,
+            'ay_g': ay_g,
+            'az_g': az_g,
+            'totalAccel': totalAccel,
+            'vibration': vibration,
+            'bending': bending,
+            'predicted_status': status
+        }
 
-    if ref:
-        try:
+        if ref:
             ref.push(prediction_data)
-        except Exception as e:
-            print(f"⚠️ Firebase write failed: {e}")
+            print("✅ Saved to Firebase:", prediction_data)
+        else:
+            print("⚠️ Firebase not available")
 
-    return jsonify({'status': status})
+        return jsonify({'status': status})
+    except Exception as e:
+        return jsonify({'error': f'Prediction failed: {e}'}), 500
 
-# --- Static/Frontend Routes ---
-@app.route('/static/<path:filename>')
-def serve_static(filename):
-    return send_from_directory(app.static_folder, filename)
-
-@app.route('/', defaults={'path': ''})
-@app.route('/<path:path>')
-def serve_react_app(path):
-    target_path = os.path.join(app.template_folder, path)
-    if path != "" and os.path.exists(target_path):
-        return send_from_directory(app.template_folder, path)
-    else:
-        return send_from_directory(app.template_folder, 'index.html')
-
-# --- Entry Point ---
-# --- Entrypoint for Render 🚀 ---
+# === Start with Gunicorn or Waitress (Render will handle) ===
 if __name__ == '__main__':
     from waitress import serve
     port = int(os.environ.get('PORT', 5000))
