@@ -7,22 +7,19 @@ from firebase_admin import credentials, db
 import datetime
 import os
 import json
-import base64
 
 # --- Flask App Initialization ---
 app = Flask(__name__, static_folder='../frontend/build/static', template_folder='../frontend/build')
 
-# --- Firebase Initialization ---
-FIREBASE_SERVICE_ACCOUNT_KEY_ENCODED = os.environ.get('FIREBASE_SERVICE_ACCOUNT_KEY')
+# --- Firebase Initialization (Plain JSON file) ---
+FIREBASE_JSON_PATH = os.path.join(os.path.dirname(__file__), 'firebase-key.json')
 DATABASE_URL = os.environ.get('FIREBASE_DATABASE_URL', 'https://health-3c965-default-rtdb.firebaseio.com')
 
 ref = None  # Firebase DB reference
 
-if FIREBASE_SERVICE_ACCOUNT_KEY_ENCODED:
+if os.path.exists(FIREBASE_JSON_PATH):
     try:
-        decoded_key = base64.b64decode(FIREBASE_SERVICE_ACCOUNT_KEY_ENCODED).decode('utf-8')
-        service_account_info = json.loads(decoded_key)
-        cred = credentials.Certificate(service_account_info)
+        cred = credentials.Certificate(FIREBASE_JSON_PATH)
 
         # Avoid initializing Firebase more than once
         if not firebase_admin._apps:
@@ -33,7 +30,7 @@ if FIREBASE_SERVICE_ACCOUNT_KEY_ENCODED:
     except Exception as e:
         print(f"❌ FATAL ERROR: Could not initialize Firebase: {e}")
 else:
-    print("⚠️ WARNING: FIREBASE_SERVICE_ACCOUNT_KEY environment variable not set.")
+    print(f"⚠️ WARNING: Firebase credential file not found at {FIREBASE_JSON_PATH}")
 
 # --- Load Model ---
 MODEL_PATH = os.path.join(os.path.dirname(__file__), 'model.pkl')
@@ -51,7 +48,6 @@ except Exception as e:
 @app.route('/')
 def serve_react_app():
     return send_from_directory(os.path.join(app.root_path, '../frontend/build'), 'index.html')
-
 
 @app.route('/static/<path:filename>')
 def serve_static(filename):
