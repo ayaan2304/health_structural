@@ -1,34 +1,39 @@
 import numpy as np
 import pandas as pd
 import joblib
-from flask import Flask, render_template, request, jsonify, send_from_directory
+from flask import Flask, send_from_directory, request, jsonify
 import firebase_admin
 from firebase_admin import credentials, db
 import datetime
 import os
 import json
+import base64
 
 # --- Flask App Initialization ---
 app = Flask(__name__, static_folder='../frontend/build/static', template_folder='../frontend/build')
 
-# --- Firebase Initialization (Plain JSON file) ---
+# --- Firebase Initialization ---
 FIREBASE_SERVICE_ACCOUNT_KEY_ENCODED = os.environ.get('FIREBASE_SERVICE_ACCOUNT_KEY')
 DATABASE_URL = os.environ.get('FIREBASE_DATABASE_URL')
 
-if FIREBASE_SERVICE_ACCOUNT_KEY_ENCODED:
+ref = None  # Firebase DB reference
+
+if FIREBASE_SERVICE_ACCOUNT_KEY_ENCODED and DATABASE_URL:
     try:
+        # Decode base64 key and load JSON
         decoded_key = base64.b64decode(FIREBASE_SERVICE_ACCOUNT_KEY_ENCODED).decode('utf-8')
         service_account_info = json.loads(decoded_key)
         cred = credentials.Certificate(service_account_info)
+
         if not firebase_admin._apps:
             firebase_admin.initialize_app(cred, {'databaseURL': DATABASE_URL})
+
         ref = db.reference('structural_data')
         print("✅ Firebase initialized successfully!")
     except Exception as e:
         print(f"❌ Firebase init error: {e}")
 else:
-    print("⚠️ FIREBASE_SERVICE_ACCOUNT_KEY env variable not set")
-
+    print("⚠️ WARNING: Firebase environment variables FIREBASE_SERVICE_ACCOUNT_KEY or FIREBASE_DATABASE_URL not set.")
 
 # --- Load Model ---
 MODEL_PATH = os.path.join(os.path.dirname(__file__), 'model.pkl')
@@ -47,9 +52,11 @@ except Exception as e:
 def serve_react_app():
     return send_from_directory(os.path.join(app.root_path, '../frontend/build'), 'index.html')
 
+
 @app.route('/static/<path:filename>')
 def serve_static(filename):
     return send_from_directory(app.static_folder, filename)
+
 
 @app.route('/predict', methods=['POST'])
 def predict():
@@ -112,6 +119,7 @@ def predict():
         print(f"❌ Firebase save error: {e}")
 
     return jsonify({'status': status})
+
 
 # --- Run App ---
 if __name__ == '__main__':
