@@ -9,24 +9,27 @@ from flask import Flask, send_from_directory, request, jsonify
 import firebase_admin
 from firebase_admin import credentials, db
 
-# === Flask Setup ===
-app = Flask(__name__, static_folder='../frontend/build/static', template_folder='../frontend/build')
+# Set paths relative to this backend file
+FRONTEND_BUILD_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'frontend', 'build'))
+
+app = Flask(
+    __name__,
+    static_folder=os.path.join(FRONTEND_BUILD_DIR, 'static'),
+    template_folder=FRONTEND_BUILD_DIR
+)
 
 # === Firebase Setup ===
 FIREBASE_SERVICE_ACCOUNT_KEY_ENCODED = os.environ.get('FIREBASE_SERVICE_ACCOUNT_KEY')
 DATABASE_URL = os.environ.get('FIREBASE_DATABASE_URL')
 
 ref = None
-
 if FIREBASE_SERVICE_ACCOUNT_KEY_ENCODED and DATABASE_URL:
     try:
         decoded_key = base64.b64decode(FIREBASE_SERVICE_ACCOUNT_KEY_ENCODED).decode('utf-8')
         service_account_info = json.loads(decoded_key)
         cred = credentials.Certificate(service_account_info)
-
         if not firebase_admin._apps:
             firebase_admin.initialize_app(cred, {'databaseURL': DATABASE_URL})
-
         ref = db.reference('structural_data')
         print("✅ Firebase initialized successfully!")
     except Exception as e:
@@ -34,7 +37,7 @@ if FIREBASE_SERVICE_ACCOUNT_KEY_ENCODED and DATABASE_URL:
 else:
     print("⚠️ Firebase config not found.")
 
-# === Load Model ===
+# === Load ML Model ===
 try:
     model = joblib.load('model.pkl')
     print("✅ Model loaded successfully!")
@@ -42,7 +45,12 @@ except Exception as e:
     model = None
     print(f"❌ Model load error: {e}")
 
-# === React Frontend Routes ===
+# === Serve React Static files ===
+@app.route('/static/<path:filename>')
+def serve_static(filename):
+    return send_from_directory(app.static_folder, filename)
+
+# === Serve React App ===
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
 def serve_react_app(path):
@@ -51,11 +59,7 @@ def serve_react_app(path):
     else:
         return send_from_directory(app.template_folder, 'index.html')
 
-@app.route('/static/<path:filename>')
-def serve_static(filename):
-    return send_from_directory(app.static_folder, filename)
-
-# === Prediction Endpoint ===
+# === Prediction API ===
 @app.route('/predict', methods=['POST'])
 def predict():
     if not model:
@@ -103,7 +107,7 @@ def predict():
     except Exception as e:
         return jsonify({'error': f'Prediction failed: {e}'}), 500
 
-# === Start with Gunicorn or Waitress (Render will handle) ===
+# === Run the app ===
 if __name__ == '__main__':
     from waitress import serve
     port = int(os.environ.get('PORT', 5000))
