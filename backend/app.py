@@ -12,7 +12,6 @@ from firebase_admin import credentials, db
 # === Flask Setup ===
 app = Flask(__name__, static_folder='../frontend/build/static', template_folder='../frontend/build')
 
-
 # === Firebase Setup ===
 FIREBASE_SERVICE_ACCOUNT_KEY_ENCODED = os.environ.get('FIREBASE_SERVICE_ACCOUNT_KEY')
 DATABASE_URL = os.environ.get('FIREBASE_DATABASE_URL')
@@ -57,17 +56,22 @@ def serve_react_app(path):
 @app.route('/predict', methods=['POST'])
 def predict():
     if not model:
+        print("❌ Model not loaded.")
         return jsonify({'error': 'Model not loaded'}), 500
 
     try:
         data = request.get_json()
-        ax_g = float(data['ax_g'])
-        ay_g = float(data['ay_g'])
-        az_g = float(data['az_g'])
-        vibration = float(data['vibration'])
-        bending = float(data['bending'])
+        print("📥 Received data:", data)
+
+        # Parse and validate input
+        ax_g = float(data.get('ax_g', 0))
+        ay_g = float(data.get('ay_g', 0))
+        az_g = float(data.get('az_g', 0))
+        vibration = float(data.get('vibration', 0))
+        bending = float(data.get('bending', 0))
 
         totalAccel = np.sqrt(ax_g**2 + ay_g**2 + az_g**2)
+
         input_df = pd.DataFrame([{
             'ax_g': ax_g,
             'ay_g': ay_g,
@@ -77,8 +81,12 @@ def predict():
             'bending': bending
         }])
 
+        print("📊 Model input:", input_df.to_dict(orient='records'))
+
         prediction = model.predict(input_df)[0]
         status = "DANGER" if prediction == 1 else "SAFE"
+
+        print("✅ Prediction:", prediction, "=>", status)
 
         prediction_data = {
             'timestamp': datetime.datetime.utcnow().isoformat(),
@@ -98,7 +106,9 @@ def predict():
             print("⚠️ Firebase not available")
 
         return jsonify({'status': status})
+
     except Exception as e:
+        print("❌ Prediction error:", e)
         return jsonify({'error': f'Prediction failed: {e}'}), 500
 
 # === Production Server Entry Point ===
